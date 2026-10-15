@@ -1466,7 +1466,7 @@ ss -ltnp | grep 18080
 # LISTEN ... 127.0.0.1:18080 ... users:(("ssh",pid=...))
 curl http://127.0.0.1:18080/
 \end{bashcode}
-Le tunnel écoute seulement sur \texttt{127.0.0.1}, donc lui seul peut l'utiliser. Il passe
+Le tunnel écoute seulement sur l'interface locale (\texttt{127.0.0.1} et \texttt{::1}), donc lui seul peut l'utiliser. Il passe
 par la cible, qui n'a pas de restriction. Si le prestataire demande au bastion un tunnel
 vers autre chose que \texttt{10.99.0.11:22}, c'est refusé :
 \begin{bashcode}
@@ -1489,8 +1489,8 @@ time (for i in $(seq 10); do ssh bastion true; done)
 time (for i in $(seq 10); do ssh -o ControlPath=none bastion true; done)
 \end{bashcode}
 Avec le multiplexage, seule la première connexion fait l'échange de clés et
-l'authentification. Les autres réutilisent le canal : dans notre labo, environ 0,011 s
-contre 0,117 s pour une connexion complète.
+l'authentification. Les autres réutilisent le canal : dans notre labo, environ 0,014 s
+contre 0,088 s pour une connexion complète.
 \end{solution}
 \question \textbf{Départ du prestataire.} Retrouvez ses connexions dans les journaux du
 bastion grâce à l'empreinte (\texttt{LogLevel VERBOSE}). Retirez sa clé en la repérant
@@ -1499,19 +1499,25 @@ configuration de \texttt{sshd} avant de la recharger ?
 \begin{solution}
 \begin{bashcode}
 # dans sshd_config : LogLevel VERBOSE
-journalctl -u ssh | grep Accepted     # ou docker logs <bastion> | grep Accepted
+journalctl -u ssh | grep "Accepted publickey"     # ou docker logs <bastion> | grep "Accepted publickey"
 # Accepted publickey for root ... SHA256:xxxx
 
 ssh-keygen -lf /root/.ssh/authorized_keys   # trouver la ligne de cette empreinte
 sed -i 'Nd' /root/.ssh/authorized_keys      # N = numéro de cette ligne
 
 sshd -t && systemctl reload ssh
-ssh -i ~/.ssh/id_presta -p 2222 root@127.0.0.1 hostname
-# Permission denied
+ssh -o PreferredAuthentications=publickey -i ~/.ssh/id_presta -p 2222 root@127.0.0.1 hostname
+# Permission denied (publickey,password)
 \end{bashcode}
 On repère la ligne par l'empreinte et pas par le commentaire, car un commentaire peut être
 modifié. \texttt{sshd -t} vérifie la configuration avant de recharger, pour éviter de se
 bloquer dehors.
+
+Piège : si le multiplexage est actif (question~6), une connexion déjà ouverte avec cette clé
+reste utilisable après la suppression de la ligne. Il faut aussi fermer le maître :
+\begin{bashcode}
+ssh -O exit -i ~/.ssh/id_presta -p 2222 root@127.0.0.1
+\end{bashcode}
 \end{solution}
 \end{questions}
 
