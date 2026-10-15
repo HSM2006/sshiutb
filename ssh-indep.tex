@@ -1482,7 +1482,15 @@ shell. La clé du prestataire est aussi déposée sur la cible, sans restriction
 \begin{bashcode}
 ssh -i ~/.ssh/id_presta -p 2222 root@127.0.0.1 hostname; echo "code=$?"
 # rien d'affiché, code=1
+
+# le rebond autorisé marche, le rebond ailleurs est refusé
+ssh -i ~/.ssh/id_presta -p 2222 -W 10.99.0.11:22 root@127.0.0.1   # la bannière de la cible arrive
+ssh -i ~/.ssh/id_presta -p 2222 -W 10.99.0.11:8080 root@127.0.0.1
+# channel 0: open failed: administratively prohibited: open failed
+# stdio forwarding failed
 \end{bashcode}
+\texttt{permitopen} borne donc aussi le \texttt{-W} que \texttt{ProxyJump} utilise en
+interne : un \texttt{ProxyJump} vers une autre destination échoue au même endroit.
 \end{solution}
 \question Écrivez son bloc \texttt{\textasciitilde/.ssh/config} avec l'alias
 \texttt{presta}, le passage par le bastion et sa clé uniquement. Contrôlez le résultat
@@ -1530,12 +1538,19 @@ curl http://127.0.0.1:18080/
 \end{bashcode}
 Le tunnel écoute seulement sur l'interface locale (\texttt{127.0.0.1} et \texttt{::1}), donc lui seul peut l'utiliser. Il passe
 par la cible, qui n'a pas de restriction. Si le prestataire demande au bastion un tunnel
-vers autre chose que \texttt{10.99.0.11:22}, c'est refusé :
+vers autre chose que \texttt{10.99.0.11:22}, la demande est refusée par le bastion. Le
+message n'apparaît qu'au moment où l'on essaie réellement d'utiliser le tunnel, donc dans
+le terminal où \texttt{ssh} tourne en avant-plan (\texttt{-N} sans \texttt{-f}), avec
+\texttt{LogLevel=INFO} :
 \begin{bashcode}
-ssh -N -L 18081:10.99.0.11:8080 bastion-presta
+# terminal 1
+ssh -o LogLevel=INFO -N -L 18081:10.99.0.11:8080 bastion-presta
+# terminal 2
 curl -m 3 http://127.0.0.1:18081/
-# channel ...: open failed: administratively prohibited
+# terminal 1 : channel 2: open failed: administratively prohibited: open failed
 \end{bashcode}
+Sans \texttt{LogLevel=INFO}, le client ne montre rien : le refus ne se voit que côté
+bastion, dans ses journaux.
 \end{solution}
 \question Mettez en place le multiplexage et chronométrez 10 connexions avec et sans.
 Quel gain voyez-vous ?
@@ -1555,13 +1570,13 @@ l'authentification. Les autres réutilisent le canal : dans notre labo, environ 
 contre 0,088 s pour une connexion complète.
 \end{solution}
 \question \textbf{Départ du prestataire.} Retrouvez ses connexions dans les journaux du
-bastion grâce à l'empreinte (\texttt{LogLevel VERBOSE}). Retirez sa clé en la repérant
-par son empreinte, puis montrez que sa connexion est refusée. Quelle commande teste la
-configuration de \texttt{sshd} avant de la recharger ?
+bastion grâce à l'empreinte. Retirez sa clé en la repérant par son empreinte, puis montrez
+que sa connexion est refusée. Quelle commande teste la configuration de \texttt{sshd} avant
+de la recharger ?
 \begin{solution}
 \begin{bashcode}
-# dans sshd_config : LogLevel VERBOSE
-journalctl -u ssh | grep "Accepted publickey"     # ou docker logs <bastion> | grep "Accepted publickey"
+# le niveau de log par defaut (INFO) suffit a afficher l'empreinte
+journalctl -u ssh | grep "Accepted publickey"
 # Accepted publickey for root ... SHA256:xxxx
 
 ssh-keygen -lf /root/.ssh/authorized_keys   # trouver la ligne de cette empreinte
